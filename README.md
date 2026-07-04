@@ -1,5 +1,7 @@
 # DRIFT-Demo
 
+**English** · [한국어](./README.ko.md)
+
 **A two-screen visual demo of a [DRIFT](https://github.com/TaewoooPark/DRIFT) peer-to-peer inference run — the "For Tokens" economy, both faces at once.**
 
 One model is split layer-by-layer across two DRIFT workers (peer-to-peer chain, weightless head), and each side of the exchange gets its own full-screen view. Every panel shows the network's **actual internals**, not an abstraction:
@@ -13,13 +15,35 @@ Staged on two laptops side by side (A left, B right), the consumer's packets exi
 
 **Every pixel is real.** The demo never edits the DRIFT sources and never simulates data: a stock DRIFT worker is instrumented at process start by monkey-patching (`TorchShardEngine.load/forward/head_argmax`, `Node.handle`, `Node._relay`) plus read-only PyTorch forward hooks on each kept decoder layer, all emitting fire-and-forget UDP events *out of band*. The math is untouched — the returned token is always the stock code's result (measured overhead ≈ 15–20 ms/token of display-only extraction). Receipt hashes on screen are the actual receipts the head verifies; the run journals them, so a demo run itself audits with `drift ledger`. Verified live: A's outgoing heatmap columns equal B's incoming ones **30/30 steps** — the fp16 wire round-trip is lossless, exactly as DRIFT's parity gate proves.
 
-## What it looks like
+## Reading the screens
 
-| A · consumer | B · provider |
-|---|---|
-| ![view A](docs/view-a.png) | ![view B](docs/view-b.png) |
+Both figures below were captured on a live local run; the numbers match the badges in the images.
 
-*(captured mid-generation on a live local run — the heatmap is the actual residual stream, the green bars are per-layer ‖Δh‖, the candidate list is the tail's own lm_head softmax, and the op log is one line per real recv/compute/sign/send)*
+### A · consumer — `/a`
+
+![view A, annotated](docs/view-a.png)
+
+1. **Transcript** — the conversation, in the same grammar as the real `drift run` REPL (`you ›` / `drift ›`). The reply lands token-by-token, one line per completed round trip through the chain.
+2. **Candidates ticker** — for the latest step, the next-token candidates the network weighed, with their real probabilities (the tail node's own `lm_head` softmax).
+3. **Prompt** — type here; submitting drives the actual orchestrator via `POST /api/generate`.
+4. **‖Δh‖ per layer** — this machine's decoder layers `[0:14)`. Bar height = how much that layer just rewrote the current token's hidden representation (measured by read-only forward hooks; the segmented meters snap to each new token).
+5. **The residual stream, leaving** — the hidden state that actually crosses the wire: the last position's 1536 fp16 values, downsampled to 128 mean-|activation| buckets, one column per token, rendered 1-bit (Bayer ordered dithering — white-pixel density *is* the magnitude). Node B receives these exact bytes.
+6. **The wire** — a filled packet is ~3.0 KB of hidden state leaving for node B; an outlined packet is the single token id coming home. That asymmetry *is* the weightless-head design: tensors flow between nodes, only integers touch the head.
+7. **Operation log** — one line per real step on this machine: `<<` recv (bytes off the wire), `::` compute (layer range + ms), `>>` send, `OK` the head's live verification of the full Ed25519 receipt chain (hash prefixes shown).
+8. **Session stats** — tok/s, ms/token, wire bytes/token, receipts verified so far, model.
+
+### B · provider — `/b`
+
+![view B, annotated](docs/view-b.png)
+
+1. **The residual stream, arriving** — the same columns as A's outgoing panel, because they are the same bytes (verified 30/30 steps identical in testing): two screens, one forward pass.
+2. **‖Δh‖ per layer** — this machine's half, layers `[14:28)`; same live meaning as A's meter.
+3. **The wire** — hidden state in from node A; one token id back out toward the head.
+4. **Operation log** — this machine's steps, including the `#` sign lines: the Ed25519 receipt this node signs for every hop it computes (`in`/`out` hashes + signature prefix — the same receipts the ledger settles on).
+5. **Contribution** — the ledger tally: **layer·tokens** (layers held × tokens carried, M13's settlement unit), tokens carried, sessions served, and this node's identity key.
+6. **Verification status** — stays `ALL HOPS VERIFIED` while the head's per-token checks pass; flips to an inverse, blinking `SUSPECT …` the moment any signature / hash-adjacency / anchor check fails.
+7. **Next-token candidates** — real probabilities from the `lm_head` **this node runs** (the head holds zero weights): `>` marks the token actually chosen, the `█░` meters are the softmax.
+8. **Session stats** — tokens this run, ms/token, wire/token, receipts, model.
 
 ## Run it
 
