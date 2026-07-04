@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRIFT — B · provider</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/demo.css">
+</head>
+<body class="provider">
+
+<header>
+  <div class="brand">D R I F T</div>
+  <div class="head-role">B · PROVIDER — your GPU carries half of someone else's model</div>
+  <div class="conn"><span id="status-dot" class="dot"></span><span id="status-text">connecting…</span></div>
+</header>
+
+<main>
+  <section class="node-panel">
+    <div class="node-head"><span id="node-title">worker —</span><span id="node-meta"></span></div>
+    <div id="stack" class="stack"></div>
+    <div class="lane-wrap">
+      <div id="lane" class="lane"></div>
+      <div class="lane-label">← the wire from node A — hidden state in; this node computes, signs, returns the token</div>
+    </div>
+    <div class="node-foot"><span id="compute-ms">— ms compute</span><span id="mode-label"></span></div>
+  </section>
+
+  <section class="ledger">
+    <div class="earn-box">
+      <div class="earn-title">CONTRIBUTION — LEDGER UNITS (LAYER·TOKENS)</div>
+      <div class="earn-num" id="earn-lt">0</div>
+      <div class="earn-sub">
+        <span>tokens carried <b id="earn-tokens">0</b></span>
+        <span>sessions <b id="earn-sessions">0</b></span>
+        <span>identity <b id="earn-node">—</b></span>
+      </div>
+    </div>
+    <div id="verify-badge" class="badge good">all hops verified ✓</div>
+    <div class="receipts-title">SIGNED RECEIPTS — EVERY HOP, LIVE (Ed25519)</div>
+    <div id="receipts-list"></div>
+  </section>
+</main>
+
+<footer id="stats">
+  <span>tokens this run <b id="tok-count">—</b></span>
+  <span>ms/token <b id="stat-ms">—</b></span>
+  <span>wire/token <b id="stat-kb">—</b></span>
+  <span>receipts <b id="stat-verified">0 ✓</b></span>
+  <span>model <b id="model-name">—</b></span>
+</footer>
+
+<div id="overlay">
+  <div class="ov-title">D R I F T</div>
+  <div id="ov-text">connecting…</div>
+</div>
+
+<script>window.VIEW = { role: 'provider', nodeIndex: 1 };</script>
+<script src="/static/demo.js"></script>
+</body>
+</html>

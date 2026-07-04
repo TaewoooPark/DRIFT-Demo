@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRIFT — A · consumer</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/demo.css">
+</head>
+<body class="consumer">
+
+<header>
+  <div class="brand">D R I F T</div>
+  <div class="head-role">A · CONSUMER — you ask; the network computes</div>
+  <div class="conn"><span id="status-dot" class="dot"></span><span id="status-text">connecting…</span></div>
+</header>
+
+<main>
+  <section class="chat">
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input id="prompt" autocomplete="off" placeholder="ask the network…">
+      <button id="send" type="submit">send</button>
+    </form>
+  </section>
+
+  <section class="node-panel">
+    <div class="node-head"><span id="node-title">worker —</span><span id="node-meta"></span></div>
+    <div id="stack" class="stack"></div>
+    <div class="lane-wrap">
+      <div id="lane" class="lane"></div>
+      <div class="lane-label">the wire → node B — only the hidden state crosses; the token comes home</div>
+    </div>
+    <div class="node-foot"><span id="compute-ms">— ms compute</span><span id="mode-label"></span></div>
+  </section>
+</main>
+
+<footer id="stats">
+  <span>tok/s <b id="stat-tps">—</b></span>
+  <span>ms/token <b id="stat-ms">—</b></span>
+  <span>wire/token <b id="stat-kb">—</b></span>
+  <span>receipts <b id="stat-verified">0 ✓</b></span>
+  <span>model <b id="model-name">—</b></span>
+</footer>
+
+<div id="overlay">
+  <div class="ov-title">D R I F T</div>
+  <div id="ov-text">connecting…</div>
+</div>
+
+<script>window.VIEW = { role: 'consumer', nodeIndex: 0 };</script>
+<script src="/static/demo.js"></script>
+</body>
+</html>
