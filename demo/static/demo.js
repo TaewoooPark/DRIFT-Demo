@@ -122,20 +122,31 @@
     heatCtx.fillStyle = '#000000';
     heatCtx.fillRect(0, 0, heatCanvas.width, heatCanvas.height);
   }
-  function heatColor(v) {
-    // straight grayscale (mild gamma so faint channels stay visible)
-    const g = Math.round(Math.pow(v / 255, 0.85) * 232);
-    return `rgb(${g},${g},${g})`;
-  }
+  // strict 1-bit: Bayer ordered dithering — white pixel density encodes
+  // activation magnitude, the way bitmap terminals shaded before gray existed
+  const BAYER = [
+    [0, 8, 2, 10],
+    [12, 4, 14, 6],
+    [3, 11, 1, 9],
+    [15, 7, 13, 5],
+  ];
   function heatPush(col) {
     if (!heatCtx || !col) return;
     const w = heatCanvas.width, h = heatCanvas.height;
     heatCtx.drawImage(heatCanvas, -COLW, 0);
+    const img = heatCtx.createImageData(COLW, h);
     const cellH = h / col.length;
-    for (let i = 0; i < col.length; i++) {
-      heatCtx.fillStyle = heatColor(col[i]);
-      heatCtx.fillRect(w - COLW, i * cellH, COLW, Math.ceil(cellH));
+    for (let y = 0; y < h; y++) {
+      const v = col[Math.min(col.length - 1, Math.floor(y / cellH))];
+      const t = Math.pow(v / 255, 0.85) * 16;
+      for (let x = 0; x < COLW; x++) {
+        const c = BAYER[y % 4][x % 4] < t ? 255 : 0;
+        const o = (y * COLW + x) * 4;
+        img.data[o] = c; img.data[o + 1] = c; img.data[o + 2] = c;
+        img.data[o + 3] = 255;
+      }
     }
+    heatCtx.putImageData(img, w - COLW, 0);
   }
   heatInit();
 

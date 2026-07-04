@@ -30,18 +30,18 @@ _CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8
            ".png": "image/png"}
 
 INDEX_HTML = """<!doctype html><meta charset="utf-8"><title>DRIFT demo</title>
-<body style="background:#000;color:#e8e8e8;font-family:'Courier New',Courier,monospace;
-font-weight:600;display:flex;flex-direction:column;align-items:center;
-justify-content:center;height:100vh;margin:0;gap:1.4rem">
-<pre style="color:#fff;line-height:1.2;margin:0"> ___  ___ ___ ___ _____
+<body style="background:#000;color:#fff;font-family:'Courier New',Courier,monospace;
+font-weight:700;display:flex;flex-direction:column;align-items:center;
+justify-content:center;height:100vh;margin:0;gap:2rem">
+<pre style="color:#fff;line-height:1.25;margin:0"> ___  ___ ___ ___ _____
 |   \\| _ \\_ _| __|_   _|
 | |) |   /| || _|  | |
 |___/|_|_\\___|_|   |_|</pre>
-<div style="color:#6e6e6e;text-transform:uppercase;font-size:12px">one model, two machines — open one view per screen</div>
-<div style="display:flex;gap:1rem">
-<a href="/a" style="color:#000;background:#e8e8e8;border:1px solid #e8e8e8;
+<div style="text-transform:uppercase;font-size:11px;letter-spacing:.06em">one model, two machines — open one view per screen</div>
+<div style="display:flex;gap:1.4rem">
+<a href="/a" style="color:#000;background:#fff;border:2px solid #fff;
 padding:.6rem 1.4rem;text-decoration:none">[ A · CONSUMER ]</a>
-<a href="/b" style="color:#e8e8e8;border:1px solid #e8e8e8;padding:.6rem 1.4rem;
+<a href="/b" style="color:#fff;border:2px solid #fff;padding:.6rem 1.4rem;
 text-decoration:none">[ B · PROVIDER ]</a>
 </div></body>"""
 
