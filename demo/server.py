@@ -30,16 +30,19 @@ _CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8
            ".png": "image/png"}
 
 INDEX_HTML = """<!doctype html><meta charset="utf-8"><title>DRIFT demo</title>
-<body style="background:#0b0d10;color:#e6e6e6;font-family:ui-monospace,monospace;
-display:flex;flex-direction:column;align-items:center;justify-content:center;
-height:100vh;margin:0;gap:1.2rem">
-<div style="font-size:1.6rem;letter-spacing:.35em">D R I F T &nbsp;demo</div>
-<div style="opacity:.6">one model, two machines — open one view per screen</div>
+<body style="background:#000;color:#e8e8e8;font-family:'Courier New',Courier,monospace;
+font-weight:600;display:flex;flex-direction:column;align-items:center;
+justify-content:center;height:100vh;margin:0;gap:1.4rem">
+<pre style="color:#fff;line-height:1.2;margin:0"> ___  ___ ___ ___ _____
+|   \\| _ \\_ _| __|_   _|
+| |) |   /| || _|  | |
+|___/|_|_\\___|_|   |_|</pre>
+<div style="color:#6e6e6e;text-transform:uppercase;font-size:12px">one model, two machines — open one view per screen</div>
 <div style="display:flex;gap:1rem">
-<a href="/a" style="color:#0b0d10;background:#e6e6e6;padding:.7rem 1.4rem;
-text-decoration:none;border-radius:4px">A · consumer</a>
-<a href="/b" style="color:#e6e6e6;border:1px solid #555;padding:.7rem 1.4rem;
-text-decoration:none;border-radius:4px">B · provider</a>
+<a href="/a" style="color:#000;background:#e8e8e8;border:1px solid #e8e8e8;
+padding:.6rem 1.4rem;text-decoration:none">[ A · CONSUMER ]</a>
+<a href="/b" style="color:#e8e8e8;border:1px solid #e8e8e8;padding:.6rem 1.4rem;
+text-decoration:none">[ B · PROVIDER ]</a>
 </div></body>"""
 
 

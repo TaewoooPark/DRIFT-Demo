@@ -44,15 +44,19 @@
     $('ov-text').textContent = text;
   }
 
+  const MARK = { ok: '[OK]', live: '[RUN]', warn: '[..]', bad: '[ERR]', '': '[--]' };
   function setStatus(text, cls) {
     const d = $('status-dot'), t = $('status-text');
-    if (d) d.className = 'dot ' + (cls || '');
+    if (d) {
+      d.className = 'mark ' + (cls || '');
+      d.textContent = MARK[cls || ''] || '[--]';
+    }
     if (t) t.textContent = text;
   }
 
   // ---------------------------------------------------------------- op log
-  const GLYPH = { recv: '→', compute: '⚙', send: '⇥', sign: '✍', verify: '✓',
-                  token: '●', topk: '∴', sys: '·', err: '✗' };
+  const GLYPH = { recv: '<<', compute: '::', send: '>>', sign: '#', verify: 'OK',
+                  token: '>', topk: '%', sys: '--', err: '!!' };
   function log(kind, text, ts) {
     const el = $('oplog');
     if (!el) return;
@@ -115,17 +119,13 @@
     heatCanvas.width = 840;
     heatCanvas.height = 128;
     heatCtx = heatCanvas.getContext('2d');
-    heatCtx.fillStyle = '#0b0d10';
+    heatCtx.fillStyle = '#000000';
     heatCtx.fillRect(0, 0, heatCanvas.width, heatCanvas.height);
   }
   function heatColor(v) {
-    const t = v / 255;
-    if (t < 0.72) {
-      const k = t / 0.72;
-      return `rgb(${11 + k * 80},${13 + k * 120},${16 + k * 200})`;
-    }
-    const k = (t - 0.72) / 0.28;
-    return `rgb(${91 + k * 164},${133 + k * 122},${216 + k * 39})`;
+    // straight grayscale (mild gamma so faint channels stay visible)
+    const g = Math.round(Math.pow(v / 255, 0.85) * 232);
+    return `rgb(${g},${g},${g})`;
   }
   function heatPush(col) {
     if (!heatCtx || !col) return;
@@ -140,6 +140,7 @@
   heatInit();
 
   // ---------------------------------------------------------------- top-k
+  const TBAR_W = 24;
   function topkRender(cand, chosen) {
     const box = $('topk');
     if (!box) return;
@@ -147,19 +148,20 @@
     cand.forEach(([txt, p], idx) => {
       const row = document.createElement('div');
       row.className = 'trow' + (idx === 0 ? ' chosen' : '');
-      const pct = (p * 100).toFixed(1);
+      const filled = Math.max(idx === 0 ? 1 : 0, Math.round(p * TBAR_W));
+      const bar = '█'.repeat(filled) + '░'.repeat(TBAR_W - filled);
       row.innerHTML =
-        `<span class="ttok">${esc(JSON.stringify(txt))}</span>` +
-        `<span class="tbar"><span class="tfill" style="width:${Math.max(2, p * 100)}%"></span></span>` +
-        `<span class="tp">${pct}%</span>`;
+        `<span class="ttok">${idx === 0 ? '&gt; ' : '  '}${esc(JSON.stringify(txt))}</span>` +
+        `<span class="tbar-txt">${bar}</span>` +
+        `<span class="tp">${(p * 100).toFixed(1)}%</span>`;
       box.appendChild(row);
     });
   }
   function candTicker(cand) {
     const el = $('cand');
     if (!el) return;
-    el.textContent = 'the network weighed → ' + cand.slice(0, 5)
-      .map(([t, p]) => `${JSON.stringify(t)} ${(p * 100).toFixed(0)}%`).join(' · ');
+    el.textContent = 'weighed: ' + cand.slice(0, 5)
+      .map(([t, p]) => `${JSON.stringify(t)} ${(p * 100).toFixed(0)}%`).join(' | ');
   }
 
   // ---------------------------------------------------------------- packets
@@ -175,25 +177,31 @@
   }
 
   // ---------------------------------------------------------------- chat (A)
-  function userBubble(text) {
-    const logEl = $('chat-log');
-    if (!logEl) return;
-    const d = document.createElement('div');
-    d.className = 'msg user';
-    d.textContent = text;
-    logEl.appendChild(d);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  function assistantBubble() {
+  // transcript lines, same grammar as the real `drift run` REPL
+  function transcriptLine(cls, pfx) {
     const logEl = $('chat-log');
     if (!logEl) return null;
     const d = document.createElement('div');
-    d.className = 'msg assistant thinking';
-    d.textContent = '';
+    d.className = 'msg ' + cls;
+    const p = document.createElement('span');
+    p.className = 'pfx';
+    p.textContent = pfx;
+    const tx = document.createElement('span');
+    tx.className = 'tx';
+    d.appendChild(p);
+    d.appendChild(tx);
     logEl.appendChild(d);
     logEl.scrollTop = logEl.scrollHeight;
     return d;
+  }
+
+  function userBubble(text) {
+    const d = transcriptLine('user', 'you ›');
+    if (d) d.lastChild.textContent = text;
+  }
+
+  function assistantBubble() {
+    return transcriptLine('assistant thinking', 'drift ›');
   }
 
   function setBusy(b) {
@@ -253,7 +261,7 @@
       userBubble(s.last.prompt);
       assistantEl = assistantBubble();
       assistantEl.classList.remove('thinking');
-      assistantEl.textContent = s.last.text || '';
+      assistantEl.lastChild.textContent = s.last.text || '';
     }
     setBusy(!!s.busy);
   }
@@ -363,7 +371,7 @@
         if (V.role === 'consumer') {
           if (!assistantEl) assistantEl = assistantBubble();
           assistantEl.classList.remove('thinking');
-          assistantEl.textContent += e.text;
+          assistantEl.lastChild.textContent += e.text;
           const logEl = $('chat-log');
           if (logEl) logEl.scrollTop = logEl.scrollHeight;
           log('token', `#${e.i} ${JSON.stringify(e.text)} · ${e.tps} tok/s`, e.ts);
@@ -421,7 +429,7 @@
         setBusy(false);
         if (assistantEl) {
           assistantEl.classList.remove('thinking');
-          assistantEl.textContent += `\n[error] ${e.error}`;
+          assistantEl.lastChild.textContent += `\n[error] ${e.error}`;
           assistantEl = null;
         }
         if (!plan) overlay('failed to assemble: ' + e.error);
@@ -453,13 +461,14 @@
         if (!r.ok) {
           const err = (await r.json()).error || r.statusText;
           assistantEl.classList.remove('thinking');
-          assistantEl.textContent = '[' + err + ']';
+          assistantEl.lastChild.textContent = '[' + err + ']';
           assistantEl = null;
           localPending = false;
           setBusy(false);
         }
       } catch (err) {
-        assistantEl.textContent = '[unreachable: ' + err + ']';
+        assistantEl.classList.remove('thinking');
+        assistantEl.lastChild.textContent = '[unreachable: ' + err + ']';
         assistantEl = null;
         localPending = false;
         setBusy(false);
