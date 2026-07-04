@@ -18,6 +18,7 @@
 <main>
   <section class="chat">
     <div id="chat-log"></div>
+    <div id="cand" class="cand"></div>
     <form id="chat-form">
       <input id="prompt" autocomplete="off" placeholder="ask the network…">
       <button id="send" type="submit">send</button>
@@ -26,12 +27,29 @@
 
   <section class="node-panel">
     <div class="node-head"><span id="node-title">worker —</span><span id="node-meta"></span></div>
-    <div id="stack" class="stack"></div>
-    <div class="lane-wrap">
-      <div id="lane" class="lane"></div>
-      <div class="lane-label">the wire → node B — only the hidden state crosses; the token comes home</div>
+
+    <div class="panel-block">
+      <div id="bars" class="bars"></div>
+      <div class="cap-row">
+        <span class="cap">‖Δh‖ PER LAYER — how much each decoder layer rewrote this token's representation, live</span>
+        <span class="cap" id="bars-max"></span>
+      </div>
     </div>
-    <div class="node-foot"><span id="compute-ms">— ms compute</span><span id="mode-label"></span></div>
+
+    <div class="panel-block">
+      <canvas id="heat"></canvas>
+      <div class="cap">THE RESIDUAL STREAM LEAVING THIS MACHINE — 1536 fp16 values per token (128 buckets shown), the only thing that crosses the wire; node B receives these exact bytes</div>
+    </div>
+
+    <div class="lane-wrap">
+      <div id="lane" class="lane slim"></div>
+      <div class="cap">wire → node B · the token id comes home</div>
+    </div>
+
+    <div class="oplog-wrap">
+      <div class="cap">OPERATION LOG — this machine, every real step</div>
+      <div id="oplog" class="oplog"></div>
+    </div>
   </section>
 </main>
 
@@ -40,6 +58,7 @@
   <span>ms/token <b id="stat-ms">—</b></span>
   <span>wire/token <b id="stat-kb">—</b></span>
   <span>receipts <b id="stat-verified">0 ✓</b></span>
+  <span>compute <b id="compute-ms">—</b> <b id="mode-label"></b></span>
   <span>model <b id="model-name">—</b></span>
 </footer>
 

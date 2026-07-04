@@ -18,12 +18,29 @@
 <main>
   <section class="node-panel">
     <div class="node-head"><span id="node-title">worker —</span><span id="node-meta"></span></div>
-    <div id="stack" class="stack"></div>
-    <div class="lane-wrap">
-      <div id="lane" class="lane"></div>
-      <div class="lane-label">← the wire from node A — hidden state in; this node computes, signs, returns the token</div>
+
+    <div class="panel-block">
+      <canvas id="heat"></canvas>
+      <div class="cap">THE RESIDUAL STREAM ARRIVING FROM NODE A — bit-identical to what left A's screen; this node continues the same forward pass</div>
     </div>
-    <div class="node-foot"><span id="compute-ms">— ms compute</span><span id="mode-label"></span></div>
+
+    <div class="panel-block">
+      <div id="bars" class="bars"></div>
+      <div class="cap-row">
+        <span class="cap">‖Δh‖ PER LAYER — how much each decoder layer rewrote this token's representation, live</span>
+        <span class="cap" id="bars-max"></span>
+      </div>
+    </div>
+
+    <div class="lane-wrap">
+      <div id="lane" class="lane slim"></div>
+      <div class="cap">← wire from node A · hidden state in, one token id back</div>
+    </div>
+
+    <div class="oplog-wrap">
+      <div class="cap">OPERATION LOG — this machine, every real step</div>
+      <div id="oplog" class="oplog"></div>
+    </div>
   </section>
 
   <section class="ledger">
@@ -36,9 +53,13 @@
         <span>identity <b id="earn-node">—</b></span>
       </div>
     </div>
+
     <div id="verify-badge" class="badge good">all hops verified ✓</div>
-    <div class="receipts-title">SIGNED RECEIPTS — EVERY HOP, LIVE (Ed25519)</div>
-    <div id="receipts-list"></div>
+
+    <div class="panel-block topk-wrap">
+      <div class="cap">NEXT-TOKEN CANDIDATES — lm_head runs on THIS node (the head is weightless); real probabilities per step</div>
+      <div id="topk"></div>
+    </div>
   </section>
 </main>
 
@@ -47,6 +68,7 @@
   <span>ms/token <b id="stat-ms">—</b></span>
   <span>wire/token <b id="stat-kb">—</b></span>
   <span>receipts <b id="stat-verified">0 ✓</b></span>
+  <span>compute <b id="compute-ms">—</b> <b id="mode-label"></b></span>
   <span>model <b id="model-name">—</b></span>
 </footer>
 

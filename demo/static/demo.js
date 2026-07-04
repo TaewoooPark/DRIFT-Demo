@@ -1,12 +1,16 @@
-/* DRIFT demo — shared view logic.
+/* DRIFT demo — shared view logic (v2: real internals, no abstract boxes).
  *
- * Every element on screen is driven by real DRIFT traffic: the SSE stream at
- * /events carries out-of-band events emitted by the instrumented workers and
- * the head. Nothing here is simulated.
+ * Every panel is driven by real DRIFT traffic over SSE (/events):
+ *   · layer bars   — ‖Δh‖ per decoder layer: how much each layer actually
+ *                    rewrote this token's representation (forward hooks)
+ *   · heatmap      — the residual stream itself, 1536 fp16 values per token
+ *                    downsampled to 128 buckets; A's outgoing columns and B's
+ *                    incoming columns are the SAME bytes
+ *   · top-k        — the tail node's own lm_head probabilities per step
+ *   · op log       — one line per real operation: recv / compute / sign / send
+ * Nothing is simulated.
  *
  * The page sets window.VIEW = { role: 'consumer'|'provider', nodeIndex }.
- * Physical staging: view A on the left screen, view B on the right — the
- * consumer's wire exits rightward, the provider's enters from the left.
  */
 (() => {
   const V = window.VIEW;
@@ -18,7 +22,8 @@
   const DIR = V.role === 'consumer' ? { out: 'ltr', in: 'rtl' }
                                     : { out: 'rtl', in: 'ltr' };
 
-  let plan = null, me = null, blocks = [];
+  let plan = null, me = null;
+  let barFills = [], barVals = [];
   let earnings = { tokens: 0, layer_tokens: 0 };
   let assistantEl = null;
   let busy = false;
@@ -45,39 +50,116 @@
     if (t) t.textContent = text;
   }
 
-  // ---------------------------------------------------------------- stack
-  function buildStack() {
-    const stack = $('stack');
-    stack.innerHTML = '';
-    blocks = [];
+  // ---------------------------------------------------------------- op log
+  const GLYPH = { recv: '→', compute: '⚙', send: '⇥', sign: '✍', verify: '✓',
+                  token: '●', topk: '∴', sys: '·', err: '✗' };
+  function log(kind, text, ts) {
+    const el = $('oplog');
+    if (!el) return;
+    const line = document.createElement('div');
+    line.className = 'll k-' + kind;
+    const t = ts ? new Date(ts * 1000) : new Date();
+    const stamp = String(t.getMinutes()).padStart(2, '0') + ':' +
+                  String(t.getSeconds()).padStart(2, '0') + '.' +
+                  String(t.getMilliseconds()).padStart(3, '0');
+    line.innerHTML = `<span class="lt">${stamp}</span>` +
+                     `<span class="lg">${GLYPH[kind] || '·'}</span>` +
+                     `<span class="lx">${text}</span>`;
+    el.appendChild(line);
+    while (el.children.length > 250) el.firstChild.remove();
+    el.scrollTop = el.scrollHeight;
+  }
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const fmtB = (n) => n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
+
+  // ---------------------------------------------------------------- layer bars
+  function buildBars() {
+    const bars = $('bars');
+    bars.innerHTML = '';
+    barFills = [];
     for (let i = me.start; i < me.end; i++) {
       const b = document.createElement('div');
-      b.className = 'block';
-      b.title = 'decoder layer ' + i;
+      b.className = 'bar';
+      const f = document.createElement('div');
+      f.className = 'fill';
       const s = document.createElement('span');
       s.textContent = i;
+      b.appendChild(f);
       b.appendChild(s);
-      stack.appendChild(b);
-      blocks.push(b);
+      bars.appendChild(b);
+      barFills.push(f);
     }
-    $('node-title').textContent = `worker ${me.name} · layers [${me.start}:${me.end})`;
+    $('node-title').textContent = `worker ${me.name} · decoder layers [${me.start}:${me.end})`;
     $('node-meta').textContent =
       `${me.device || '?'} · ${me.host}:${me.port} · id ${me.pubkey}…`;
   }
 
-  let waveTimer = [];
-  function wave(ms) {
-    waveTimer.forEach(clearTimeout);
-    waveTimer = [];
-    const span = Math.min(420, Math.max(160, (ms || 40) * 5));
-    blocks.forEach((b, i) => {
-      waveTimer.push(setTimeout(() => {
-        b.classList.remove('on');
-        void b.offsetWidth;
-        b.classList.add('on');
-        setTimeout(() => b.classList.remove('on'), 200);
-      }, (i / Math.max(1, blocks.length)) * span));
+  function updateBars(deltas) {
+    if (!deltas || !deltas.length || !barFills.length) return;
+    barVals = deltas;
+    const max = Math.max(...deltas, 1e-6);
+    for (let i = 0; i < barFills.length && i < deltas.length; i++) {
+      barFills[i].style.height = Math.round((deltas[i] / max) * 100) + '%';
+      barFills[i].parentNode.title =
+        `layer ${me.start + i} — ‖Δh‖ = ${deltas[i]}`;
+    }
+    if ($('bars-max')) $('bars-max').textContent = 'max ‖Δh‖ ' + max.toFixed(1);
+  }
+
+  // ---------------------------------------------------------------- heatmap
+  let heatCtx = null, heatCanvas = null;
+  const COLW = 6;
+  function heatInit() {
+    heatCanvas = $('heat');
+    if (!heatCanvas) return;
+    heatCanvas.width = 840;
+    heatCanvas.height = 128;
+    heatCtx = heatCanvas.getContext('2d');
+    heatCtx.fillStyle = '#0b0d10';
+    heatCtx.fillRect(0, 0, heatCanvas.width, heatCanvas.height);
+  }
+  function heatColor(v) {
+    const t = v / 255;
+    if (t < 0.72) {
+      const k = t / 0.72;
+      return `rgb(${11 + k * 80},${13 + k * 120},${16 + k * 200})`;
+    }
+    const k = (t - 0.72) / 0.28;
+    return `rgb(${91 + k * 164},${133 + k * 122},${216 + k * 39})`;
+  }
+  function heatPush(col) {
+    if (!heatCtx || !col) return;
+    const w = heatCanvas.width, h = heatCanvas.height;
+    heatCtx.drawImage(heatCanvas, -COLW, 0);
+    const cellH = h / col.length;
+    for (let i = 0; i < col.length; i++) {
+      heatCtx.fillStyle = heatColor(col[i]);
+      heatCtx.fillRect(w - COLW, i * cellH, COLW, Math.ceil(cellH));
+    }
+  }
+  heatInit();
+
+  // ---------------------------------------------------------------- top-k
+  function topkRender(cand, chosen) {
+    const box = $('topk');
+    if (!box) return;
+    box.innerHTML = '';
+    cand.forEach(([txt, p], idx) => {
+      const row = document.createElement('div');
+      row.className = 'trow' + (idx === 0 ? ' chosen' : '');
+      const pct = (p * 100).toFixed(1);
+      row.innerHTML =
+        `<span class="ttok">${esc(JSON.stringify(txt))}</span>` +
+        `<span class="tbar"><span class="tfill" style="width:${Math.max(2, p * 100)}%"></span></span>` +
+        `<span class="tp">${pct}%</span>`;
+      box.appendChild(row);
     });
+  }
+  function candTicker(cand) {
+    const el = $('cand');
+    if (!el) return;
+    el.textContent = 'the network weighed → ' + cand.slice(0, 5)
+      .map(([t, p]) => `${JSON.stringify(t)} ${(p * 100).toFixed(0)}%`).join(' · ');
   }
 
   // ---------------------------------------------------------------- packets
@@ -89,28 +171,28 @@
     p.textContent = label;
     lane.appendChild(p);
     p.addEventListener('animationend', () => p.remove());
-    setTimeout(() => p.remove(), 1500); // belt & braces
+    setTimeout(() => p.remove(), 1500);
   }
 
   // ---------------------------------------------------------------- chat (A)
   function userBubble(text) {
-    const log = $('chat-log');
-    if (!log) return;
+    const logEl = $('chat-log');
+    if (!logEl) return;
     const d = document.createElement('div');
     d.className = 'msg user';
     d.textContent = text;
-    log.appendChild(d);
-    log.scrollTop = log.scrollHeight;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
   }
 
   function assistantBubble() {
-    const log = $('chat-log');
-    if (!log) return null;
+    const logEl = $('chat-log');
+    if (!logEl) return null;
     const d = document.createElement('div');
     d.className = 'msg assistant thinking';
     d.textContent = '';
-    log.appendChild(d);
-    log.scrollTop = log.scrollHeight;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
     return d;
   }
 
@@ -122,24 +204,7 @@
     if (!b && input) input.focus();
   }
 
-  // ---------------------------------------------------------------- receipts (B)
-  function receiptRow(e) {
-    const list = $('receipts-list');
-    if (!list) return;
-    const row = document.createElement('div');
-    row.className = 'rrow';
-    const hops = e.hops.map((h) => {
-      const mine = me && h.node === me.pubkey ? ' mine' : '';
-      return `<span class="hop${mine}">[${h.start}:${h.end}) ` +
-             `<span class="hash">${h.in}</span>→<span class="hash">${h.out}</span> ` +
-             `<span class="sig">✓${h.sig.slice(0, 6)}</span></span>`;
-    }).join('<span class="link">⛓</span>');
-    row.innerHTML = `<span class="seq">#${e.seq}</span>` +
-                    `<span class="mode">${e.mode}</span>${hops}`;
-    list.prepend(row);
-    while (list.children.length > 40) list.lastChild.remove();
-  }
-
+  // ---------------------------------------------------------------- earnings (B)
   function renderEarnings() {
     if ($('earn-lt')) {
       $('earn-lt').textContent = earnings.layer_tokens.toLocaleString();
@@ -164,11 +229,12 @@
   function applyPlan(nodes, model) {
     plan = nodes;
     me = nodes[Math.min(V.nodeIndex, nodes.length - 1)];
-    buildStack();
+    buildBars();
     if ($('model-name')) $('model-name').textContent = model || '';
     if ($('earn-node')) $('earn-node').textContent = `${me.pubkey}…`;
     overlay(null);
     setStatus('network ready — ' + nodes.length + ' worker(s), weightless head', 'ok');
+    log('sys', `assigned decoder layers [${me.start}:${me.end}) of ${model}`);
   }
 
   function applyState(s) {
@@ -215,17 +281,24 @@
 
       case 'node.step':
         if (isMe(e)) {
-          $('stack').classList.add('busy');
-          $('mode-label').textContent = `${e.mode} · ${e.n_pos} pos` +
-            (e.embed ? ' · embed(thin entry)' : '');
+          if (e.embed) {
+            log('recv', `${e.mode} #${e.seq} · ${e.n_pos} token id(s) — thin entry, ` +
+                        `this node embeds them into 1536-d itself`, e.ts);
+          } else {
+            log('recv', `${e.mode} #${e.seq} · hidden state ${fmtB(e.in_bytes)} ` +
+                        `(fp16) off the wire`, e.ts);
+          }
         }
         break;
 
       case 'node.compute':
         if (isMe(e)) {
-          $('stack').classList.remove('busy');
-          wave(e.ms);
-          $('compute-ms').textContent = `${e.ms} ms compute`;
+          updateBars(e.layers);
+          heatPush(V.role === 'consumer' ? e.hout : e.hin);
+          $('compute-ms').textContent = `${e.ms} ms`;
+          $('mode-label').textContent = `${e.mode} · ${e.n_pos} pos`;
+          log('compute', `layers ${e.start}–${e.end - 1} forward · attn+mlp ×` +
+                         `${e.end - e.start} · ${e.ms} ms @ ${me.device}`, e.ts);
         }
         break;
 
@@ -236,6 +309,10 @@
         const kind = e.bytes > 0 ? 'tensor' : 'token';
         if (isMe(e)) {
           packet('out', label, kind);
+          log('send', e.tail
+            ? `token id ${e.token} → head collect ${e.to[0]}:${e.to[1]} ` +
+              `(only an integer goes back)`
+            : `hidden state ${fmtB(e.bytes)} → next node ${e.to[0]}:${e.to[1]}`, e.ts);
         } else if (e.to && e.to[1] === me.port) {
           packet('in', label, kind);
         } else if (V.role === 'consumer' && e.tail) {
@@ -246,6 +323,16 @@
         }
         break;
       }
+
+      case 'node.topk':
+        topkRender(e.cand, e.chosen);
+        candTicker(e.cand);
+        if (V.role === 'provider') {
+          const top = e.cand.slice(0, 3)
+            .map(([t, p]) => `${JSON.stringify(t)} ${(p * 100).toFixed(0)}%`).join(' · ');
+          log('topk', `lm_head on THIS node → ${top}`, e.ts);
+        }
+        break;
 
       case 'head.session_start':
         setBusy(true);
@@ -258,6 +345,7 @@
           assistantEl = assistantBubble();
         }
         localPending = false;
+        log('sys', `session ${e.session} · prompt ${e.prompt_tokens} tokens`, e.ts);
         setStatus('generating…', 'live');
         break;
 
@@ -267,6 +355,7 @@
         break;
 
       case 'head.prefill_end':
+        log('sys', `prefill done in ${e.ms} ms — every node's KV cache is built`, e.ts);
         setStatus('decoding…', 'live');
         break;
 
@@ -275,8 +364,9 @@
           if (!assistantEl) assistantEl = assistantBubble();
           assistantEl.classList.remove('thinking');
           assistantEl.textContent += e.text;
-          const log = $('chat-log');
-          if (log) log.scrollTop = log.scrollHeight;
+          const logEl = $('chat-log');
+          if (logEl) logEl.scrollTop = logEl.scrollHeight;
+          log('token', `#${e.i} ${JSON.stringify(e.text)} · ${e.tps} tok/s`, e.ts);
         }
         if ($('stat-tps')) $('stat-tps').textContent = e.tps.toFixed(1);
         if ($('tok-count')) $('tok-count').textContent = e.i;
@@ -286,10 +376,20 @@
         if ($('stat-ms')) $('stat-ms').textContent = e.ms.toFixed(0);
         break;
 
-      case 'head.receipts':
-        receiptRow(e);
+      case 'head.receipts': {
         foldEarnings(e.hops || []);
         if ($('stat-verified')) $('stat-verified').textContent = e.checked + ' ✓';
+        if (V.role === 'provider' && me) {
+          const mine = (e.hops || []).find((h) => h.node === me.pubkey);
+          if (mine) {
+            log('sign', `receipt [${mine.start}:${mine.end}) in ${mine.in}… ` +
+                        `out ${mine.out}… sig ${mine.sig}… (Ed25519)`, e.ts);
+          }
+        } else if (V.role === 'consumer') {
+          const chain = (e.hops || []).map((h) => h.out.slice(0, 6)).join('→');
+          log('verify', `${(e.hops || []).length} receipts · hash chain ` +
+                        `${chain} · ${(e.suspects || []).length} suspects`, e.ts);
+        }
         if ($('verify-badge')) {
           const bad = (e.suspects || []).length > 0;
           $('verify-badge').textContent = bad
@@ -298,18 +398,22 @@
           $('verify-badge').className = 'badge ' + (bad ? 'bad' : 'good');
         }
         break;
+      }
 
       case 'head.recovering':
+        log('err', 'a node dropped — re-splitting over survivors…', e.ts);
         setStatus('node dropped — re-splitting over survivors…', 'warn');
         break;
 
       case 'head.recovered':
+        log('sys', `recovered — bitwise replay, recovery #${e.recoveries}`, e.ts);
         setStatus(`recovered (bitwise replay) — recovery #${e.recoveries}`, 'ok');
         break;
 
       case 'head.session_end':
         setBusy(false);
         assistantEl = null;
+        log('sys', `session done — ${e.tokens} tokens · ${e.seconds}s · ${e.tps} tok/s`, e.ts);
         setStatus(`done — ${e.tokens} tokens in ${e.seconds}s (${e.tps} tok/s)`, 'ok');
         break;
 
@@ -321,6 +425,7 @@
           assistantEl = null;
         }
         if (!plan) overlay('failed to assemble: ' + e.error);
+        log('err', e.error, e.ts);
         setStatus('error — ' + e.error, 'bad');
         break;
     }
@@ -356,6 +461,7 @@
       } catch (err) {
         assistantEl.textContent = '[unreachable: ' + err + ']';
         assistantEl = null;
+        localPending = false;
         setBusy(false);
       }
     });
