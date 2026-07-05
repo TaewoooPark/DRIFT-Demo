@@ -23,11 +23,12 @@
                                     : { out: 'rtl', in: 'ltr' };
 
   let plan = null, me = null;
-  let barFills = [], barVals = [];
+  let barFills = [];
   let earnings = { tokens: 0, layer_tokens: 0 };
   let assistantEl = null;
   let busy = false;
   let localPending = false;   // this client submitted the prompt (bubbles exist)
+  let restoredChat = false;   // the hello-state transcript restore ran already
 
   // The head's plan names workers n0/n1…, but a worker stamps its own events
   // with its self-chosen name (node-<port>). Match on either.
@@ -66,12 +67,15 @@
     const stamp = String(t.getMinutes()).padStart(2, '0') + ':' +
                   String(t.getSeconds()).padStart(2, '0') + '.' +
                   String(t.getMilliseconds()).padStart(3, '0');
+    // text can contain model-generated tokens — escape before innerHTML
     line.innerHTML = `<span class="lt">${stamp}</span>` +
                      `<span class="lg">${GLYPH[kind] || '·'}</span>` +
-                     `<span class="lx">${text}</span>`;
+                     `<span class="lx">${esc(text)}</span>`;
+    // only auto-scroll when pinned at the bottom, so the log stays readable
+    const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
     el.appendChild(line);
     while (el.children.length > 250) el.firstChild.remove();
-    el.scrollTop = el.scrollHeight;
+    if (pinned) el.scrollTop = el.scrollHeight;
   }
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const fmtB = (n) => n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
@@ -100,7 +104,6 @@
 
   function updateBars(deltas) {
     if (!deltas || !deltas.length || !barFills.length) return;
-    barVals = deltas;
     const max = Math.max(...deltas, 1e-6);
     for (let i = 0; i < barFills.length && i < deltas.length; i++) {
       barFills[i].style.height = Math.round((deltas[i] / max) * 100) + '%';
@@ -268,7 +271,10 @@
     }
     if ($('earn-sessions')) $('earn-sessions').textContent = s.sessions || 0;
     if ($('stat-verified')) $('stat-verified').textContent = (s.receipts_checked || 0) + ' ✓';
-    if (V.role === 'consumer' && s.last && s.last.prompt) {
+    // restore the transcript once per page life — an SSE reconnect re-sends
+    // hello, and restoring again would duplicate the lines
+    if (V.role === 'consumer' && s.last && s.last.prompt && !restoredChat) {
+      restoredChat = true;
       userBubble(s.last.prompt);
       assistantEl = assistantBubble();
       assistantEl.classList.remove('thinking');

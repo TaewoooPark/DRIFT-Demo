@@ -13,7 +13,7 @@ One model is split layer-by-layer across two DRIFT workers (peer-to-peer chain, 
 
 Staged on two laptops side by side (A left, B right), the consumer's packets exit toward the right edge and the provider's enter from the left — and the two heatmaps draw the **same columns**, because they are the same bytes: the visual proof that two machines are running one forward pass.
 
-**Every pixel is real.** The demo never edits the DRIFT sources and never simulates data: a stock DRIFT worker is instrumented at process start by monkey-patching (`TorchShardEngine.load/forward/head_argmax`, `Node.handle`, `Node._relay`) plus read-only PyTorch forward hooks on each kept decoder layer, all emitting fire-and-forget UDP events *out of band*. The math is untouched — the returned token is always the stock code's result (measured overhead ≈ 15–20 ms/token of display-only extraction). Receipt hashes on screen are the actual receipts the head verifies; the run journals them, so a demo run itself audits with `drift ledger`. Verified live: A's outgoing heatmap columns equal B's incoming ones **30/30 steps** — the fp16 wire round-trip is lossless, exactly as DRIFT's parity gate proves.
+**Every pixel is real.** The demo never edits the DRIFT sources and never simulates data: a stock DRIFT worker is instrumented at process start by monkey-patching (`TorchShardEngine.load/forward/head_argmax`, `Node.handle`, `Node._relay`) plus read-only PyTorch forward hooks on each kept decoder layer, all emitting fire-and-forget UDP events *out of band*. The math is untouched — the next token comes from one `lm_head` pass written as the stock expression, and the demo's greedy output is verified token-identical to the stock path; display-only extraction costs roughly 10–20 ms/token depending on the machine (`DRIFT_DEMO_TOPK=0` disables the top-k tap). Receipt hashes on screen are the actual receipts the head verifies; the run journals them, so a demo run itself audits with `drift ledger`. Verified live: A's outgoing heatmap columns equal B's incoming ones **30/30 steps** — the fp16 wire round-trip is lossless, exactly as DRIFT's parity gate proves.
 
 ## Reading the screens
 
@@ -54,7 +54,7 @@ bash scripts/setup.sh          # vendors DRIFT into vendor/, builds .venv
 .venv/bin/python -m demo       # spawns 2 local workers, opens /a and /b
 ```
 
-Then type a prompt in view A. First launch loads the model shards (~10–60 s); the overlay lifts when the network is assembled.
+Then type a prompt in view A. First launch loads the model shards (~10–60 s); on a cold machine the model is first downloaded to the Hugging Face cache (~3 GB for the default Qwen). The overlay lifts when the network is assembled.
 
 ```
 http://127.0.0.1:8800/a   consumer
@@ -101,4 +101,4 @@ head ──ids──▶ n0 [0:14) ──hidden 3.1 KB──▶ n1 [14:28) ──
               └─ signs receipt              └─ signs receipt      └─ verifies both, live
 ```
 
-DRIFT itself is vendored read-only under `vendor/DRIFT` (gitignored; pinned by `scripts/setup.sh`).
+DRIFT itself is vendored read-only under `vendor/DRIFT` — gitignored, and pinned to DRIFT **`v1.0.0`** by `scripts/setup.sh` (the demo hooks drift internals, so upgrades are deliberate: `rm -rf vendor/DRIFT && DRIFT_REF=<tag> bash scripts/setup.sh`).

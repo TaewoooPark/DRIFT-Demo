@@ -31,6 +31,10 @@ class Emitter:
             host, _, port = tok.rpartition(":")
             self.targets.append((host or "127.0.0.1", int(port)))
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) if self.targets else None
+        if self._sock is not None:
+            # emission must never block the data plane — if the send buffer is
+            # ever full, drop the datagram instead of waiting
+            self._sock.setblocking(False)
         self.local = None  # in-process sink: callable(dict), set by the demo server
 
     def emit(self, etype: str, **fields) -> None:

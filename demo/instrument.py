@@ -21,6 +21,7 @@ Everything emitted is out-of-band fire-and-forget UDP.
 
 from __future__ import annotations
 
+import os
 import time
 
 import torch
@@ -30,6 +31,7 @@ from . import events
 
 _HEAT_BUCKETS = 128
 _TOPK = 8
+_TOPK_ON = os.environ.get("DRIFT_DEMO_TOPK", "1") != "0"
 _TOKENIZERS: dict = {}
 
 
@@ -122,14 +124,24 @@ def patch_worker() -> None:
     orig_head_argmax = engine_torch.TorchShardEngine.head_argmax
 
     def head_argmax(self, hidden):
-        token = orig_head_argmax(self, hidden)  # the untouched result
+        if not _TOPK_ON:  # DRIFT_DEMO_TOPK=0 → stock path, zero extra work
+            return orig_head_argmax(self, hidden)
         try:
-            logits = self.lm_head(self.norm_mod(hidden[:, -1:, :]))[:, -1, :].float()
-            vals, ids = torch.topk(torch.softmax(logits, dim=-1)[0], k=_TOPK)
+            # ONE lm_head pass, written as the stock expression (engine_torch
+            # head_argmax) — the returned argmax is computed from the exact same
+            # logits the stock path would produce; top-k is read off the side.
+            logits = self.lm_head(self.norm_mod(hidden[:, -1:, :]))[:, -1, :]
+            token = int(torch.argmax(logits, dim=-1))
+        except Exception:
+            return orig_head_argmax(self, hidden)
+        try:
+            vals, ids = torch.topk(torch.softmax(logits.float(), dim=-1)[0], k=_TOPK)
             tok = _tokenizer(self.model_id)
+            # single-token decode can yield U+FFFD for byte-fallback BPE pieces —
+            # display-only, so that's fine
             cand = [[tok.decode([int(i)]), round(float(v), 4)]
                     for i, v in zip(ids, vals)]
-            events.emit("node.topk", node=self.name, cand=cand, chosen=int(token))
+            events.emit("node.topk", node=self.name, cand=cand, chosen=token)
         except Exception:
             pass
         return token

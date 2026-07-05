@@ -14,6 +14,7 @@ generation worker thread.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import queue
@@ -76,17 +77,24 @@ class Bus:
                 pass
 
     def publish(self, evt: dict) -> None:
-        try:
-            self._fold(evt)
-        except Exception:
-            pass
+        # fold under the same lock that guards snapshot(), so a reader never
+        # serializes the state dict while a key is being inserted
         with self._lock:
+            try:
+                self._fold(evt)
+            except Exception:
+                pass
             subs = list(self._subs)
         for q in subs:
             try:
                 q.put_nowait(evt)
             except queue.Full:
                 pass
+
+    def snapshot(self) -> dict:
+        """A consistent deep copy of the folded state, safe to serialize."""
+        with self._lock:
+            return copy.deepcopy(self.state)
 
     def _fold(self, e: dict) -> None:
         s, t = self.state, e.get("t")
@@ -116,10 +124,17 @@ class Bus:
             s["busy"] = False
 
 
-def udp_listener(bus: Bus, port: int, host: str = "127.0.0.1") -> None:
-    """Receive worker events (fire-and-forget UDP JSON) and publish them."""
+def make_events_socket(port: int, host: str = "127.0.0.1") -> socket.socket:
+    """Bind the worker-event UDP socket. Raises OSError if the port is taken —
+    bind this in the launcher, before anything is spawned, so a conflict fails
+    fast instead of a daemon thread dying silently."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
+    return sock
+
+
+def udp_listener(bus: Bus, sock: socket.socket) -> None:
+    """Receive worker events (fire-and-forget UDP JSON) and publish them."""
     while True:
         data, _ = sock.recvfrom(65535)
         try:
@@ -172,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/events":
             self._sse()
         elif path == "/api/state":
-            self._json(200, self.bus.state)
+            self._json(200, self.bus.snapshot())
         else:
             self._json(404, {"error": "not found"})
 
@@ -187,10 +202,17 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._json(400, {"error": "bad json"})
             return
-        prompt = (body.get("prompt") or "").strip()
+        prompt = (body.get("prompt") or "").strip()[:8000]
         if not prompt:
             self._json(400, {"error": "empty prompt"})
             return
+        max_new = body.get("max_new_tokens")
+        if max_new is not None:
+            try:
+                max_new = max(1, min(1024, int(max_new)))
+            except (TypeError, ValueError):
+                self._json(400, {"error": "max_new_tokens must be an integer"})
+                return
         head = self.head
         if head is None or not head.ready.is_set():
             self._json(503, {"error": "still assembling — workers are loading their layer slices"})
@@ -198,8 +220,7 @@ class Handler(BaseHTTPRequestHandler):
         if not head.busy.acquire(blocking=False):
             self._json(409, {"error": "a generation is already running"})
             return
-        session = f"demo-{int(time.time())}"
-        max_new = body.get("max_new_tokens")
+        session = f"demo-{time.time_ns()}"
 
         def run():
             try:
@@ -218,10 +239,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
+        # the stream has no length delimiter; close is the only correct framing
+        self.send_header("Connection", "close")
         self.end_headers()
         q = self.bus.subscribe()
         try:
-            hello = json.dumps({"t": "hello", "state": self.bus.state})
+            hello = json.dumps({"t": "hello", "state": self.bus.snapshot()})
             self.wfile.write(f"data: {hello}\n\n".encode())
             self.wfile.flush()
             while True:

@@ -13,7 +13,7 @@
 
 노트북 두 대를 나란히 두면(A 왼쪽, B 오른쪽) consumer의 패킷은 오른쪽 모서리로 빠져나가고 provider의 패킷은 왼쪽에서 들어옵니다 — 그리고 두 히트맵이 **같은 세로줄**을 그립니다. 같은 바이트이기 때문입니다: 두 머신이 하나의 forward pass를 굴리고 있다는 시각적 증명.
 
-**모든 픽셀은 실물입니다.** 이 데모는 DRIFT 소스를 한 줄도 수정하지 않고, 어떤 데이터도 시뮬레이션하지 않습니다: 순정 DRIFT 워커를 프로세스 시작 시 몽키패칭(`TorchShardEngine.load/forward/head_argmax`, `Node.handle`, `Node._relay`)과 디코더 레이어별 read-only PyTorch forward hook으로만 계측하고, 전부 아웃오브밴드 fire-and-forget UDP 이벤트로 내보냅니다. 수학은 그대로입니다 — 반환되는 토큰은 항상 순정 코드의 결과이고(표시용 추출 오버헤드 실측 ≈ 토큰당 15–20 ms), 화면의 영수증 해시는 헤드가 실제로 검증하는 그 영수증이며, 실행은 저널로 남아 `drift ledger`로 데모 자체를 감사할 수 있습니다. 라이브 검증: A의 나가는 히트맵 열과 B의 들어오는 열이 **30/30 스텝 완전 일치** — DRIFT의 패리티 게이트가 증명하는 그대로, fp16 와이어 왕복은 무손실입니다.
+**모든 픽셀은 실물입니다.** 이 데모는 DRIFT 소스를 한 줄도 수정하지 않고, 어떤 데이터도 시뮬레이션하지 않습니다: 순정 DRIFT 워커를 프로세스 시작 시 몽키패칭(`TorchShardEngine.load/forward/head_argmax`, `Node.handle`, `Node._relay`)과 디코더 레이어별 read-only PyTorch forward hook으로만 계측하고, 전부 아웃오브밴드 fire-and-forget UDP 이벤트로 내보냅니다. 수학은 그대로입니다 — 다음 토큰은 순정 코드와 같은 수식으로 쓴 단 한 번의 `lm_head` 계산에서 나오고, 데모의 greedy 출력이 순정 경로와 토큰 단위로 동일함을 검증했습니다(표시용 추출 비용은 머신에 따라 토큰당 대략 10–20 ms, `DRIFT_DEMO_TOPK=0`으로 top-k 탭을 끌 수 있음). 화면의 영수증 해시는 헤드가 실제로 검증하는 그 영수증이며, 실행은 저널로 남아 `drift ledger`로 데모 자체를 감사할 수 있습니다. 라이브 검증: A의 나가는 히트맵 열과 B의 들어오는 열이 **30/30 스텝 완전 일치** — DRIFT의 패리티 게이트가 증명하는 그대로, fp16 와이어 왕복은 무손실입니다.
 
 ## 화면 읽는 법
 
@@ -54,7 +54,7 @@ bash scripts/setup.sh          # DRIFT를 vendor/에 클론, .venv 구성
 .venv/bin/python -m demo       # 로컬 워커 2개 스폰, /a /b 자동 오픈
 ```
 
-그다음 A 화면에 프롬프트를 입력하세요. 첫 기동은 모델 샤드를 로드하는 데 ~10–60초 걸리며, 네트워크가 조립되면 오버레이가 걷힙니다.
+그다음 A 화면에 프롬프트를 입력하세요. 첫 기동은 모델 샤드를 로드하는 데 ~10–60초 걸리고, 캐시가 없는 머신이라면 먼저 Hugging Face 캐시로 모델을 내려받습니다(기본 Qwen 기준 ~3 GB). 네트워크가 조립되면 오버레이가 걷힙니다.
 
 ```
 http://127.0.0.1:8800/a   consumer
@@ -100,4 +100,4 @@ head ──ids──▶ n0 [0:14) ──hidden 3.1 KB──▶ n1 [14:28) ──
               └─ 영수증 서명                └─ 영수증 서명         └─ 둘 다 라이브 검증
 ```
 
-DRIFT 자체는 `vendor/DRIFT`에 읽기 전용으로 벤더링됩니다(gitignore 대상; `scripts/setup.sh`가 고정).
+DRIFT 자체는 `vendor/DRIFT`에 읽기 전용으로 벤더링됩니다 — gitignore 대상이며, `scripts/setup.sh`가 DRIFT **`v1.0.0`** 태그로 고정합니다(데모가 drift 내부에 훅을 걸므로 업그레이드는 의도적으로: `rm -rf vendor/DRIFT && DRIFT_REF=<tag> bash scripts/setup.sh`).

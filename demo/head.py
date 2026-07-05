@@ -48,6 +48,26 @@ class DemoHead:
                             "device": p.get("device"),
                             "pubkey": (p.get("pubkey") or "")[:16]} for p in plan])
 
+    # ---- plan re-broadcast (the split changes on failover) --------------------
+    def _emit_plan(self) -> None:
+        """Emit a fresh head.plan from the live transport — after a recovery the
+        survivors hold different layer ranges, and the views rebuild on plan."""
+        orch = self.orch
+        nodes = []
+        for name in orch.order:
+            s = orch.transport.shards[name]
+            info = {}
+            try:
+                info = orch.transport.ping(name)
+            except Exception:
+                pass
+            nodes.append({"name": name, "host": s["host"], "port": s["port"],
+                          "start": info.get("start_layer"), "end": info.get("end_layer"),
+                          "device": info.get("device"),
+                          "pubkey": (info.get("pubkey") or "")[:16]})
+        events.emit("head.plan", model=self.model_id, thin=True, chain=True,
+                    device=self.device, n_layers=orch.n_layers, nodes=nodes)
+
     # ---- per-step receipt event ----------------------------------------------
     def _emit_receipts(self, session_id: str, mode: str) -> None:
         orch = self.orch
@@ -68,7 +88,7 @@ class DemoHead:
         from drift.orchestrator import NodeUnavailable
 
         orch = self.orch
-        n_new = int(max_new_tokens or self.max_new_tokens)
+        n_new = max(1, min(1024, int(max_new_tokens or self.max_new_tokens)))
         tok = orch.head.tokenizer
         prompt_ids = build_input_ids(tok, prompt)[0].tolist()
         eos = orch._eos_set(True)
@@ -111,6 +131,7 @@ class DemoHead:
                 except NodeUnavailable as e:
                     events.emit("head.recovering", session=session_id, error=str(e)[:200])
                     orch._recover(session_id)
+                    self._emit_plan()  # the split changed — views rebuild their panels
                     events.emit("head.recovered", session=session_id,
                                 recoveries=orch.recoveries)
         finally:

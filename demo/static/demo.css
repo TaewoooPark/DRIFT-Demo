@@ -44,7 +44,6 @@ header {
 
 .conn { margin-left: auto; display: flex; align-items: center; gap: .9rem; font-size: 12px; }
 
-.mark {}
 .mark.live { animation: blink 1s steps(1) infinite; }
 .mark.warn { animation: blink .5s steps(1) infinite; }
 .mark.bad  { background: var(--fg); color: var(--bg); padding: 0 .25em; }
