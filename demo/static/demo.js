@@ -58,22 +58,42 @@
   // ---------------------------------------------------------------- op log
   const GLYPH = { recv: '<<', compute: '::', send: '>>', sign: '#', verify: 'OK',
                   token: '>', topk: '%', sys: '--', err: '!!' };
+  // log lines are buffered and flushed once per animation frame — one reflow
+  // per frame instead of one per line, and hidden tabs just accumulate the
+  // (capped) buffer until they're shown again
+  let logQueue = [];
+  let logFlushQueued = false;
   function log(kind, text, ts) {
+    logQueue.push([kind, text, ts]);
+    if (logQueue.length > 250) logQueue.splice(0, logQueue.length - 250);
+    if (!logFlushQueued) {
+      logFlushQueued = true;
+      requestAnimationFrame(flushLog);
+    }
+  }
+  function flushLog() {
+    logFlushQueued = false;
     const el = $('oplog');
-    if (!el) return;
-    const line = document.createElement('div');
-    line.className = 'll k-' + kind;
-    const t = ts ? new Date(ts * 1000) : new Date();
-    const stamp = String(t.getMinutes()).padStart(2, '0') + ':' +
-                  String(t.getSeconds()).padStart(2, '0') + '.' +
-                  String(t.getMilliseconds()).padStart(3, '0');
-    // text can contain model-generated tokens — escape before innerHTML
-    line.innerHTML = `<span class="lt">${stamp}</span>` +
-                     `<span class="lg">${GLYPH[kind] || '·'}</span>` +
-                     `<span class="lx">${esc(text)}</span>`;
+    const batch = logQueue;
+    logQueue = [];
+    if (!el || !batch.length) return;
     // only auto-scroll when pinned at the bottom, so the log stays readable
     const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-    el.appendChild(line);
+    const frag = document.createDocumentFragment();
+    for (const [kind, text, ts] of batch) {
+      const line = document.createElement('div');
+      line.className = 'll k-' + kind;
+      const t = ts ? new Date(ts * 1000) : new Date();
+      const stamp = String(t.getMinutes()).padStart(2, '0') + ':' +
+                    String(t.getSeconds()).padStart(2, '0') + '.' +
+                    String(t.getMilliseconds()).padStart(3, '0');
+      // text can contain model-generated tokens — escape before innerHTML
+      line.innerHTML = `<span class="lt">${stamp}</span>` +
+                       `<span class="lg">${GLYPH[kind] || '·'}</span>` +
+                       `<span class="lx">${esc(text)}</span>`;
+      frag.appendChild(line);
+    }
+    el.appendChild(frag);
     while (el.children.length > 250) el.firstChild.remove();
     if (pinned) el.scrollTop = el.scrollHeight;
   }
@@ -249,8 +269,12 @@
 
   // ---------------------------------------------------------------- plan/state
   function applyPlan(nodes, model) {
+    const cand = nodes && nodes[Math.min(V.nodeIndex, nodes.length - 1)];
+    // an incomplete plan entry (a node that couldn't be enriched) must not
+    // wipe a working panel — keep what we have
+    if (!cand || cand.start == null || cand.end == null) return;
     plan = nodes;
-    me = nodes[Math.min(V.nodeIndex, nodes.length - 1)];
+    me = cand;
     buildBars();
     if ($('model-name')) $('model-name').textContent = model || '';
     if ($('earn-node')) $('earn-node').textContent = `${me.pubkey}…`;

@@ -92,6 +92,8 @@ demo/events.py        fire-and-forget UDP JSON emitter (out-of-band, non-blockin
 demo/server.py        stdlib HTTP: /a /b, SSE /events, POST /api/generate, /api/state
 demo/__main__.py      launcher: spawn workers → assemble chain+thin head → serve
 demo/static/          the two views (plain HTML/CSS/JS, no build step)
+tests/                torch-free smoke tests: state fold, exactly-once attach,
+                      API validation (`python -m unittest discover -s tests`)
 ```
 
 Topology per generated token (chain + thin head, M7/M10):
@@ -100,5 +102,7 @@ Topology per generated token (chain + thin head, M7/M10):
 head ──ids──▶ n0 [0:14) ──hidden 3.1 KB──▶ n1 [14:28) ──token──▶ head
               └─ signs receipt              └─ signs receipt      └─ verifies both, live
 ```
+
+**Failover, through the demo loop.** Kill a worker mid-generation and the session survives (M9): the head re-splits over the survivors, replays, and re-broadcasts the plan so the views rebuild their panels — verified live with a `SIGKILL` at token ~30: the finished text was **bitwise-identical** to an uninterrupted run, and the ledger records the story (the survivor's ranges widen to `[0:14),[0:28)` and its share rises accordingly).
 
 DRIFT itself is vendored read-only under `vendor/DRIFT` — gitignored, and pinned to DRIFT **`v1.0.0`** by `scripts/setup.sh` (the demo hooks drift internals, so upgrades are deliberate: `rm -rf vendor/DRIFT && DRIFT_REF=<tag> bash scripts/setup.sh`).

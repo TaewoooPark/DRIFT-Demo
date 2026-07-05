@@ -51,10 +51,16 @@ class DemoHead:
     # ---- plan re-broadcast (the split changes on failover) --------------------
     def _emit_plan(self) -> None:
         """Emit a fresh head.plan from the live transport — after a recovery the
-        survivors hold different layer ranges, and the views rebuild on plan."""
+        survivors hold different layer ranges, and the views rebuild on plan.
+        Ranges are recomputed with the same split the cluster's rebuild() uses,
+        so they are always present; ping only enriches device/pubkey and is
+        allowed to fail."""
+        from drift.common import split_layers
+
         orch = self.orch
+        ranges = split_layers(orch.n_layers, len(orch.order))
         nodes = []
-        for name in orch.order:
+        for name, (a, b) in zip(orch.order, ranges):
             s = orch.transport.shards[name]
             info = {}
             try:
@@ -62,7 +68,7 @@ class DemoHead:
             except Exception:
                 pass
             nodes.append({"name": name, "host": s["host"], "port": s["port"],
-                          "start": info.get("start_layer"), "end": info.get("end_layer"),
+                          "start": a, "end": b,
                           "device": info.get("device"),
                           "pubkey": (info.get("pubkey") or "")[:16]})
         events.emit("head.plan", model=self.model_id, thin=True, chain=True,

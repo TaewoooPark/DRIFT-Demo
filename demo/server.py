@@ -63,11 +63,17 @@ class Bus:
             "receipts_checked": 0, "suspects": [], "sessions": 0,
         }
 
-    def subscribe(self) -> queue.Queue:
+    def attach(self) -> tuple[queue.Queue, dict]:
+        """Atomically snapshot AND subscribe. publish() folds and captures the
+        subscriber list under this same lock, so a client joining mid-traffic
+        sees every event exactly once: anything already folded into its
+        snapshot is never re-delivered to its queue, anything later always is
+        — the on-screen counters can't drift from the server's."""
         q: queue.Queue = queue.Queue(maxsize=2000)
         with self._lock:
+            snap = copy.deepcopy(self.state)
             self._subs.append(q)
-        return q
+        return q, snap
 
     def unsubscribe(self, q: queue.Queue) -> None:
         with self._lock:
@@ -136,7 +142,10 @@ def make_events_socket(port: int, host: str = "127.0.0.1") -> socket.socket:
 def udp_listener(bus: Bus, sock: socket.socket) -> None:
     """Receive worker events (fire-and-forget UDP JSON) and publish them."""
     while True:
-        data, _ = sock.recvfrom(65535)
+        try:
+            data, _ = sock.recvfrom(65535)
+        except OSError:
+            return  # socket closed — the launcher is shutting down
         try:
             evt = json.loads(data.decode())
         except ValueError:
@@ -197,6 +206,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         n = int(self.headers.get("Content-Length") or 0)
+        if n > 1_000_000:
+            # cap before reading — never allocate what a length prefix claims
+            self.close_connection = True
+            self._json(413, {"error": "request body too large"})
+            return
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
         except ValueError:
@@ -242,9 +256,9 @@ class Handler(BaseHTTPRequestHandler):
         # the stream has no length delimiter; close is the only correct framing
         self.send_header("Connection", "close")
         self.end_headers()
-        q = self.bus.subscribe()
+        q, snap = self.bus.attach()
         try:
-            hello = json.dumps({"t": "hello", "state": self.bus.snapshot()})
+            hello = json.dumps({"t": "hello", "state": snap})
             self.wfile.write(f"data: {hello}\n\n".encode())
             self.wfile.flush()
             while True:

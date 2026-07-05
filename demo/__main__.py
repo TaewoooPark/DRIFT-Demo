@@ -32,6 +32,24 @@ DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 _KEEP_JOURNALS = 10
 
 
+def _open_views(urls: list[str]) -> None:
+    """Two real windows, not two tabs — the staging is one view per screen.
+    On macOS use app-mode Chrome windows; anywhere else (or if Chrome is
+    missing) fall back to the default browser."""
+    for u in urls:
+        opened = False
+        if sys.platform == "darwin":
+            try:
+                r = subprocess.run(["open", "-na", "Google Chrome", "--args",
+                                    f"--app={u}"], capture_output=True)
+                opened = r.returncode == 0
+            except OSError:
+                opened = False
+        if not opened:
+            webbrowser.open_new(u)
+        time.sleep(0.6)
+
+
 def _prune_journals(state_dir: str) -> None:
     """Keep only the newest journals so .state doesn't grow without bound."""
     js = sorted(f for f in os.listdir(state_dir)
@@ -84,6 +102,9 @@ def main(argv=None) -> int:
               f"is another demo running? {e}", flush=True)
         return 2
     httpd.daemon_threads = True
+    # accept immediately — before the slow torch import and the worker spawn —
+    # so an early browser hit gets a clean 503 instead of queueing in the backlog
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
     threading.Thread(target=udp_listener, args=(bus, udp_sock), daemon=True).start()
 
     node_ports = [free_port() for _ in range(args.nodes)]
@@ -108,7 +129,6 @@ def main(argv=None) -> int:
                         max_new_tokens=args.max_new_tokens)
         Handler.head = head
 
-        threading.Thread(target=httpd.serve_forever, daemon=True).start()
         url_a = f"http://127.0.0.1:{args.port}/a"
         url_b = f"http://127.0.0.1:{args.port}/b"
         print(f"[demo] view A (consumer): {url_a}", flush=True)
@@ -128,9 +148,7 @@ def main(argv=None) -> int:
         threading.Thread(target=build, daemon=True).start()
 
         if not args.no_browser:
-            webbrowser.open_new(url_a)
-            time.sleep(0.8)
-            webbrowser.open_new(url_b)
+            _open_views([url_a, url_b])
 
         while True:
             time.sleep(3600)
