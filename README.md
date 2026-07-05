@@ -70,6 +70,17 @@ python -m demo --max-new-tokens 400
 python -m demo --no-browser --port 8800
 ```
 
+## Models
+
+The demo hardcodes **nothing** about the model: the ‖Δh‖ hooks iterate whatever `engine.layers` holds, the heatmap adaptively pools *any* hidden size into 128 buckets, and the top-k tap uses the introspected `lm_head` + the model's own tokenizer. So any model DRIFT itself runs works here unchanged:
+
+```bash
+python -m demo --model Qwen/Qwen2.5-7B-Instruct
+python -m demo --model google/gemma-4-E2B-it
+```
+
+The constraints are DRIFT's, not the demo's: a decoder-only Hugging Face causal LM whose architecture the installed `transformers` supports, with fp16 weights that fit across the workers' combined memory. The layer panels, wire sizes, and split points all re-derive themselves from the loaded model.
+
 ## Audit a run
 
 The head journals every verified receipt to `.state/journal-<ts>.jsonl`:

@@ -70,6 +70,17 @@ python -m demo --max-new-tokens 400
 python -m demo --no-browser --port 8800
 ```
 
+## 모델
+
+데모에는 모델에 대한 하드코딩이 **하나도 없습니다**: ‖Δh‖ 훅은 `engine.layers`에 든 것을 그대로 순회하고, 히트맵은 어떤 hidden 크기든 128버킷으로 adaptive pooling하며, top-k 탭은 인트로스펙션된 `lm_head`와 모델 자신의 토크나이저를 씁니다. 따라서 DRIFT가 돌릴 수 있는 모델이면 그대로 여기서도 돕니다:
+
+```bash
+python -m demo --model Qwen/Qwen2.5-7B-Instruct
+python -m demo --model google/gemma-4-E2B-it
+```
+
+제약은 데모가 아니라 DRIFT의 것입니다: 설치된 `transformers`가 지원하는 decoder-only Hugging Face causal LM, 그리고 워커들의 합산 메모리에 들어가는 fp16 가중치. 레이어 패널·와이어 크기·분할 지점은 전부 로드된 모델에서 스스로 다시 유도됩니다.
+
 ## 실행 감사하기
 
 헤드는 검증된 모든 영수증을 `.state/journal-<ts>.jsonl`에 저널링합니다:
